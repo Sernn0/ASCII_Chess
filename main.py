@@ -33,6 +33,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Default thinking time per AI move in seconds (default: 0.5).",
     )
     parser.add_argument(
+        "--time-control",
+        type=int,
+        default=10,
+        help="Time control in minutes per player (default: 10).",
+    )
+    parser.add_argument(
         "--ascii-only",
         action="store_true",
         help="Force ASCII board rendering instead of Unicode chess glyphs.",
@@ -89,11 +95,38 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cli:
         renderer = AsciiRenderer(use_unicode=not args.ascii_only)
+        
+        # Time control menu
+        print("\n=== Chess Time Control ===")
+        print("1. 3-minute Blitz")
+        print("2. 10-minute Rapid")
+        print("3. Unlimited Time")
+        
+        time_control = None
+        while True:
+            choice = input("\nSelect (1-3): ").strip()
+            if choice == "1":
+                time_control = 180  # 3 minutes
+                break
+            elif choice == "2":
+                time_control = 600  # 10 minutes
+                break
+            elif choice == "3":
+                time_control = None  # Unlimited
+                break
+            else:
+                print("Invalid choice. Please enter a number between 1-3.")
+        
         try:
-            controller = GameController(renderer=renderer, engine_config=engine_config)
+            controller = GameController(
+                renderer=renderer, 
+                engine_config=engine_config, 
+                time_control=time_control
+            )
         except RuntimeError as exc:
-            print(f"Failed to initialise game: {exc}", file=sys.stderr)
+            print(f"게임 초기화 실패: {exc}", file=sys.stderr)
             return 1
+            
         controller.run()
         return 0
 
@@ -106,8 +139,13 @@ def main(argv: list[str] | None = None) -> int:
     from ascii_chess.gui import ChessGUI
 
     root = tk.Tk()
-    ChessGUI(root, engine_config=engine_config, use_unicode=not args.ascii_only)
-    root.mainloop()
+    try:
+        gui = ChessGUI(root, engine_config, use_unicode=not args.ascii_only, time_control=args.time_control * 60)
+        root.mainloop()
+    except Exception as exc:  # pragma: no cover - unexpected errors
+        print(f"Unexpected error: {exc}", file=sys.stderr)
+        return 1
+
     return 0
 
 
