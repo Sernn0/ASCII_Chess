@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib
 import os
 import shutil
+import ssl
 import sys
 import subprocess
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -130,34 +132,78 @@ if not has_tqdm:
         print(f"⚠️ tqdm 설치 실패: {e}")
 
 class ProgressBar:
-    def __init__(self):
-        self.pbar = None
-        
-    def __call__(self, block_num, block_size, total_size):
-        if not self.pbar:
-            from tqdm import tqdm
-            self.pbar = tqdm(
-                total=total_size,
-                unit='iB',
-                unit_scale=True,
-                unit_divisor=1024,
-                ncols=70,
-                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
-            )
-        downloaded = block_num * block_size
-        if downloaded < total_size:
-            self.pbar.update(block_size)
-        else:
+    def __init__(self, total_size: int) -> None:
+        from tqdm import tqdm
+
+        total = total_size if total_size > 0 else None
+        self.pbar = tqdm(
+            total=total,
+            unit='iB',
+            unit_scale=True,
+            unit_divisor=1024,
+            ncols=70,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
+        )
+
+    def update(self, amount: int) -> None:
+        if self.pbar:
+            self.pbar.update(amount)
+
+    def close(self) -> None:
+        if self.pbar:
             self.pbar.close()
+            self.pbar = None
+
+
+def _ensure_certifi_context() -> Optional[ssl.SSLContext]:
+    try:
+        import certifi
+    except ImportError:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "certifi"])
+            import certifi  # type: ignore[redefined]
+            print("✓ certifi 패키지를 설치했습니다.")
+        except Exception as exc:
+            print(f"⚠️ certifi 설치 실패: {exc}")
+            return None
+
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception as exc:
+        print(f"⚠️ certifi 기반 SSL 컨텍스트 생성 실패: {exc}")
+        return None
+
+
+def _open_url_with_ssl_fallback(url: str):
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "ascii-chess/stockfish-downloader"
+        },
+    )
+
+    try:
+        return urllib.request.urlopen(request, timeout=30)
+    except urllib.error.URLError as exc:
+        if not isinstance(exc.reason, ssl.SSLError):
+            raise
+
+        certifi_context = _ensure_certifi_context()
+        if certifi_context is None:
+            raise
+        return urllib.request.urlopen(request, context=certifi_context, timeout=30)
 
 def _download_stockfish() -> Optional[str]:
     """GitHub 릴리스에서 Stockfish 다운로드"""
-    import urllib.request
     import zipfile
     import tempfile
     import platform
     import os
-    import time
+    import tarfile
+    from urllib.error import URLError
     
     base_dir = Path(__file__).resolve().parent.parent / "engines"
     base_dir.mkdir(exist_ok=True)
@@ -203,13 +249,28 @@ def _download_stockfish() -> Optional[str]:
     
     try:
         # 임시 파일로 다운로드
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip' if system == 'windows' else '.tar.gz') as tmp_file:
+        archive_suffix = ''.join(Path(url).suffixes) or ('.zip' if system == 'windows' else '.tar')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=archive_suffix) as tmp_file:
             tmp_path = tmp_file.name
         
-        # 파일 다운로드 (진행률 표시 포함)
+        # 파일 다운로드 (진행률 표시 및 SSL 인증서 문제 처리)
         print(f"다운로드: {url}")
-        progress = ProgressBar()
-        urllib.request.urlretrieve(url, tmp_path, reporthook=progress)
+        with closing(_open_url_with_ssl_fallback(url)) as response:
+            total_size = getattr(response, "length", None)
+            if not total_size:
+                content_length = response.headers.get("Content-Length")
+                total_size = int(content_length) if content_length else 0
+            progress = ProgressBar(total_size)
+            try:
+                with open(tmp_path, "wb") as download_file:
+                    while True:
+                        chunk = response.read(32 * 1024)
+                        if not chunk:
+                            break
+                        download_file.write(chunk)
+                        progress.update(len(chunk))
+            finally:
+                progress.close()
         
         # 압축 해제 (진행률 표시)
         print("\n압축 해제 중...")
@@ -217,19 +278,23 @@ def _download_stockfish() -> Optional[str]:
             with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
                 zip_ref.extractall(base_dir)
         else:
-            import tarfile
             # Determine the correct mode for tarfile
             if tmp_path.endswith('.tar.xz'):
                 mode = 'r:xz'
-            else:  # .tar.gz or .tgz
+            elif tmp_path.endswith('.tar.gz') or tmp_path.endswith('.tgz'):
                 mode = 'r:gz'
-                
+            elif tmp_path.endswith('.tar'):
+                mode = 'r:'
+            else:
+                mode = 'r:*'
+
             with tarfile.open(tmp_path, mode) as tar_ref:
                 members = tar_ref.getmembers()
                 total_members = len(members)
                 for i, member in enumerate(members, 1):
                     tar_ref.extract(member, base_dir)
                     print(f"\r진행률: {i}/{total_members} 파일 처리 중...", end='')
+            print()
         
         # 압축 해제된 파일 찾기
         # Windows의 경우 압축을 풀면 stockfish/stockfish-windows-x86-64-avx2.exe 구조로 풀릴 수 있음
@@ -241,9 +306,9 @@ def _download_stockfish() -> Optional[str]:
         ]
         
         # 가능한 경로 중 존재하는 파일 찾기
-        downloaded_path = None
+        downloaded_path: Optional[Path] = None
         for path in possible_paths:
-            if path.exists():
+            if path.is_file():
                 downloaded_path = path
                 break
         
@@ -261,10 +326,12 @@ def _download_stockfish() -> Optional[str]:
             )
         
         # 최종 경로 설정 (stockfish/stockfish.exe)
-        final_path = stockfish_dir / "stockfish.exe"
+        final_path = stockfish_dir / target_name
+        downloaded_path = downloaded_path.resolve()
+        final_path_resolved = final_path.resolve()
         
         # 기존 파일이 있으면 삭제
-        if final_path.exists():
+        if final_path.exists() and final_path_resolved != downloaded_path:
             try:
                 final_path.unlink()
             except Exception as e:
@@ -274,13 +341,18 @@ def _download_stockfish() -> Optional[str]:
         stockfish_dir.mkdir(parents=True, exist_ok=True)
         
         # 파일 이동 및 권한 설정
-        shutil.move(str(downloaded_path), str(final_path))
+        if downloaded_path != final_path_resolved:
+            shutil.move(str(downloaded_path), str(final_path))
+        final_path = final_path.resolve()
         if system != 'windows':
             final_path.chmod(0o755)
         
         print(f"✅ Stockfish가 성공적으로 설치되었습니다: {final_path}")
         return str(final_path)
         
+    except (URLError, ssl.SSLError) as e:
+        print(f"❌ 다운로드 실패: {e}")
+        return None
     except Exception as e:
         print(f"❌ 다운로드 실패: {e}")
         return None
