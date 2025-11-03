@@ -45,10 +45,10 @@ class StockfishAI:
             if not os.path.isabs(executable_path):
                 executable_path = os.path.abspath(executable_path)
             if os.path.isfile(executable_path):
-                print(f"✓ 사용자 지정 Stockfish 경로 사용: {executable_path}")
+                print(f"사용자 지정 Stockfish 경로 사용: {executable_path}")
                 return chess.engine.SimpleEngine.popen_uci(executable_path)
             else:
-                print(f"⚠️ 지정된 경로를 찾을 수 없습니다: {executable_path}")
+                print(f"[WARNING] 지정된 경로를 찾을 수 없습니다: {executable_path}")
         
         # 2. 가능한 Stockfish 경로 목록
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,10 +67,10 @@ class StockfishAI:
             try:
                 if os.path.isfile(path):
                     abs_path = os.path.abspath(path)
-                    print(f"✓ Stockfish를 찾았습니다: {abs_path}")
+                    print(f"Stockfish를 찾았습니다: {abs_path}")
                     return chess.engine.SimpleEngine.popen_uci(abs_path)
             except Exception as e:
-                print(f"⚠️ {path} 확인 중 오류: {e}")
+                print(f"[WARNING] {path} 확인 중 오류: {e}")
                 continue
                 
         # 4. 재귀적으로 stockfish로 시작하는 파일 검색
@@ -87,15 +87,15 @@ class StockfishAI:
                             candidate = os.path.join(root, file)
                             try:
                                 abs_path = os.path.abspath(candidate)
-                                print(f"✓ Stockfish를 찾았습니다: {abs_path}")
+                                print(f"Stockfish를 찾았습니다: {abs_path}")
                                 return chess.engine.SimpleEngine.popen_uci(abs_path)
                             except Exception as e:
-                                print(f"⚠️ {candidate} 실행 중 오류: {e}")
+                                print(f"[WARNING] {candidate} 실행 중 오류: {e}")
         
         # 4. 시스템 PATH에서 찾기 (마지막 시도)
         path = shutil.which("stockfish")
         if path:
-            print(f"✓ 시스템 PATH에서 Stockfish를 찾았습니다: {path}")
+            print(f"시스템 PATH에서 Stockfish를 찾았습니다: {path}")
             return chess.engine.SimpleEngine.popen_uci(path)
                 
         # 모든 시도 실패

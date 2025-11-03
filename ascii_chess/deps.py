@@ -71,7 +71,7 @@ def locate_stockfish(explicit_path: Optional[str]) -> Optional[str]:
             return resolved
     
     # 아무것도 찾지 못한 경우 다운로드 시도
-    print("\n🔍 Stockfish를 찾을 수 없어 다운로드를 시도합니다...")
+    print("\n[INFO] Stockfish를 찾을 수 없어 다운로드를 시도합니다...")
     return _download_stockfish()
 
 
@@ -127,9 +127,9 @@ if not has_tqdm:
     import sys
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm"])
-        print("✓ tqdm 패키지 설치 완료")
+        print("tqdm 패키지 설치 완료")
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ tqdm 설치 실패: {e}")
+        print(f"[WARNING] tqdm 설치 실패: {e}")
 
 class ProgressBar:
     def __init__(self, total_size: int) -> None:
@@ -162,15 +162,15 @@ def _ensure_certifi_context() -> Optional[ssl.SSLContext]:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "certifi"])
             import certifi  # type: ignore[redefined]
-            print("✓ certifi 패키지를 설치했습니다.")
+            print("certifi 패키지를 설치했습니다.")
         except Exception as exc:
-            print(f"⚠️ certifi 설치 실패: {exc}")
+            print(f"[WARNING] certifi 설치 실패: {exc}")
             return None
 
     try:
         return ssl.create_default_context(cafile=certifi.where())
     except Exception as exc:
-        print(f"⚠️ certifi 기반 SSL 컨텍스트 생성 실패: {exc}")
+        print(f"[WARNING] certifi 기반 SSL 컨텍스트 생성 실패: {exc}")
         return None
 
 
@@ -245,7 +245,7 @@ def _download_stockfish() -> Optional[str]:
     if target_path.exists() and os.access(target_path, os.X_OK):
         return str(target_path)
     
-    print(f"\n📥 Stockfish 17.1 다운로드 중... ({system} {machine})")
+    print(f"\n[INFO] Stockfish 17.1 다운로드 중... ({system} {machine})")
     
     try:
         # 임시 파일로 다운로드
@@ -335,7 +335,7 @@ def _download_stockfish() -> Optional[str]:
             try:
                 final_path.unlink()
             except Exception as e:
-                print(f"⚠️ 기존 파일 삭제 중 오류: {e}")
+                print(f"[WARNING] 기존 파일 삭제 중 오류: {e}")
         
         # stockfish 디렉토리 생성
         stockfish_dir.mkdir(parents=True, exist_ok=True)
@@ -347,14 +347,14 @@ def _download_stockfish() -> Optional[str]:
         if system != 'windows':
             final_path.chmod(0o755)
         
-        print(f"✅ Stockfish가 성공적으로 설치되었습니다: {final_path}")
+        print(f"Stockfish가 성공적으로 설치되었습니다: {final_path}")
         return str(final_path)
         
     except (URLError, ssl.SSLError) as e:
-        print(f"❌ 다운로드 실패: {e}")
+        print(f"[ERROR] 다운로드 실패: {e}")
         return None
     except Exception as e:
-        print(f"❌ 다운로드 실패: {e}")
+        print(f"[ERROR] 다운로드 실패: {e}")
         return None
     finally:
         # 임시 파일 정리

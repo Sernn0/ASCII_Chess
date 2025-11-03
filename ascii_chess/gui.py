@@ -325,7 +325,7 @@ class ChessGUI:
             from_square = chess.square_name(move.from_square)
             to_square = chess.square_name(move.to_square)
             
-            self.status_label.config(text=f"💡 Hint: {san_move} ({from_square} → {to_square})")
+            self.status_label.config(text=f"Hint: {san_move} ({from_square} → {to_square})")
             
             self._highlight_hint_squares([move.from_square, move.to_square])
             
